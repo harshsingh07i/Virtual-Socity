@@ -1,0 +1,257 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model SimulationSession {
+  id              String    @id @default(cuid())
+  title           String    @default("Simulation Session")
+  status          String    @default("idle") // idle, running, paused, stopped, error
+  hour            Int       @default(0)
+  day             Int       @default(1)
+  totalDays       Int       @default(1)
+  year            Int       @default(1)
+  season          String    @default("Spring")
+  phase           String    @default("day")
+  rounds          Int       @default(0)
+  speed           Float     @default(1.0)
+  error           String?
+  lastProcessedAt DateTime?
+  stoppedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  treasury        Int       @default(1000)
+  incomeTaxRate   Float     @default(0.10)
+  salesTaxRate    Float     @default(0.05)
+  foodPrice       Int       @default(8)
+  powerPrice      Int       @default(2)
+  waterPrice      Int       @default(2)
+  mayorName       String?   @default("Ezra")
+  activeEmergency String?
+
+  // God Mode & Simulation Crisis Controls
+  foodSupplyActive    Boolean   @default(true)
+  waterSupplyActive   Boolean   @default(true)
+  powerGridActive     Boolean   @default(true)
+  factorySupplyActive Boolean   @default(true)
+  policePatrolBudget  Int       @default(100) // 0-100%
+  crimeRisk           Float     @default(0.05)
+  pollutionLevel      Int       @default(10)  // 0-100%
+  activeCrises        String    @default("[]") // JSON string of active crisis keys
+
+  agents       Agent[]
+  events       SimulationEvent[]
+  actions      AgentAction[]
+  transactions Transaction[]
+  complaints   Complaint[]
+  elections    Election[]
+  legalCases   LegalIncident[]
+  buildings    BuildingState[]
+  decisionLogs DecisionLog[]
+
+  @@map("simulation_sessions")
+}
+
+model Agent {
+  id            String   @id @default(cuid())
+  sessionId     String
+  session       SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentKey      String   // e.g. "agent-1" .. "agent-20"
+  name          String
+  role          String   // occupation
+  department    String?  // Public Works, Commerce, Health & Safety, Treasury, Police, Administration
+  personality   String
+  goal          String
+  credits       Int      @default(100)
+  energy        Int      @default(75)
+  hunger        Int      @default(20)
+  health        Int      @default(100)
+  happiness     Int      @default(65)
+  alive         Boolean  @default(true)
+  location      String   @default("Homes")
+  homeLocation  String   @default("Homes") // e.g. "Pod 1", "North Heights Apartments", "South Terrace Apartments"
+  inventory     String   @default("[\"Civic ID\", \"Ration Pass\"]") // JSON array of items
+  color         String   @default("#6ee7b7")
+  x             Float    @default(50)
+  y             Float    @default(50)
+  lastAction    String   @default("Settled into the city")
+  salary        Int      @default(15)
+  isMayor       Boolean  @default(false)
+  isOfficer     Boolean  @default(false)
+  isJudge       Boolean  @default(false)
+  detainedHours Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memories        AgentMemory[]
+  actions         AgentAction[]   @relation("AgentAsActor")
+  receivedActions AgentAction[]   @relation("AgentAsTarget")
+  decisionLogs    DecisionLog[]
+
+  @@unique([sessionId, agentKey])
+  @@index([sessionId])
+  @@map("agents")
+}
+
+model AgentMemory {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  content   String
+  round     Int      @default(0)
+  hour      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([agentId])
+  @@map("agent_memories")
+}
+
+model SimulationEvent {
+  id        Int      @id @default(autoincrement())
+  sessionId String
+  session   SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  time      String   // e.g. "04:00"
+  kind      String   // system, work, rest, eat, trade, socialize, help, survival, law, governance, error
+  text      String
+  agentName String?
+  round     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("simulation_events")
+}
+
+model AgentAction {
+  id           String   @id @default(cuid())
+  sessionId    String
+  session      SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        Agent    @relation("AgentAsActor", fields: [agentId], references: [id], onDelete: Cascade)
+  action       String   // work, rest, eat, socialize, trade, help, patrol, inspect, vote, petition
+  targetName   String?
+  targetId     String?
+  targetAgent  Agent?   @relation("AgentAsTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  reason       String
+  details      String
+  creditsDelta Int      @default(0)
+  round        Int      @default(0)
+  hour         Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([agentId])
+  @@map("agent_actions")
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  sessionId    String
+  session      SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  buyerName    String
+  sellerName   String
+  amount       Int
+  item         String   // e.g. "Meal", "Energy Cell", "Tools", "Medical Care", "Tax"
+  taxCollected Int      @default(0)
+  round        Int      @default(0)
+  hour         Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("transactions")
+}
+
+model Complaint {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  citizenName String
+  department  String   // e.g. "Public Works", "Commerce", "Health & Safety", "Treasury"
+  subject     String
+  details     String
+  status      String   @default("pending") // pending, addressed, rejected
+  round       Int      @default(0)
+  hour        Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("complaints")
+}
+
+model Election {
+  id         String   @id @default(cuid())
+  sessionId  String
+  session    SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  year       Int
+  status     String   @default("concluded") // nominating, campaigning, voting, concluded
+  winnerName String
+  turnout    Int      @default(10)
+  votesJson  String   // serialized breakdown of votes
+  createdAt  DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("elections")
+}
+
+model LegalIncident {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  suspectName String
+  officerName String
+  crimeType   String   // "theft", "vandalism", "tax_evasion", "noise_violation"
+  status      String   @default("investigating") // investigating, arrested, tried, dismissed
+  verdict     String?  // guilty, innocent
+  fine        Int      @default(0)
+  round       Int      @default(0)
+  hour        Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("legal_incidents")
+}
+
+model BuildingState {
+  id          String   @id @default(cuid())
+  sessionId   String
+  session     SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  buildingKey String   // e.g. "b-hospital", "b-power", "house-0"
+  name        String
+  condition   Int      @default(100) // 0-100%
+  powerStatus Boolean  @default(true)
+  waterStatus Boolean  @default(true)
+  budget      Int      @default(500)
+  inventory   Int      @default(50)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([sessionId, buildingKey])
+  @@index([sessionId])
+  @@map("building_states")
+}
+
+model DecisionLog {
+  id                String   @id @default(cuid())
+  sessionId         String
+  session           SimulationSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentId           String
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agentName         String
+  problemDetected   String
+  relevantInfo      String
+  optionsConsidered String   // JSON array string of evaluated options
+  chosenAction      String
+  decisionReason    String
+  expectedOutcome   String
+  actualResult      String?
+  round             Int      @default(0)
+  hour              Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([agentId])
+  @@map("decision_logs")
+}
